@@ -1,0 +1,106 @@
+import boto3
+import json
+import os
+
+s3_client = boto3.client('s3')
+
+def lambda_handler(event, context):
+    bucket = os.environ['BUCKET_NAME']
+
+    # listing the bucket files
+    files = s3_client.list_objects_v2(Bucket=bucket)['Contents']
+    
+    # html content to display the bucket name and the background-color of the web page.
+    html_content = f"""
+    <body style="background-color:white">
+    <h1 style="color:tomato;">Bucket Name: <i><u>{bucket}</u></i></h1>
+    <p class="space" style="color:green; font-size:20px">
+    <label for="search-input">Search: </label>
+    <input type="text" id="search-input" oninput="searchFiles()"></input>
+    <p class= "space" style="color:green;font-size:20px">
+    <input type="checkbox" id="select-all">Select All
+   
+    <ul id="file-list" style="list-style:none;">
+    """
+    
+    # Generating URL for the files. (Presigned urls for temporary and secure acces)
+    for file in files:
+        file_key = file['Key']
+        checkbox_id = f"checkbox_{file_key}"
+        download_url = s3_client.generate_presigned_url(
+            ClientMethod='get_object',
+            Params={
+                'Bucket': bucket,
+                'Key': file_key,
+                'ResponseContentDisposition': f'attachment; filename= "{file_key}"'
+            },
+            ExpiresIn=3600
+        )
+
+        html_content += f"""
+        <li>
+         <input type="checkbox" id="{checkbox_id}">
+         <a href="{download_url}" target="_blank">{file_key}</a>
+        </li>
+       """
+    html_content += "</ul>"
+
+    # Logic for download button, search, select all and downloading files.
+    html_content += """
+    <button id="download-selected-button" style="color:tomato;font-size:20px">Download Files</button>
+    <script>
+    function selectall() {
+    var checkboxes = document.querySelectorAll('#file-list input[type="checkbox"]');
+    for (var i = 0; i < checkboxes.length; i++) {
+    checkboxes[i].checked = document.getElementById('select-all').checked;
+    }
+    }
+    function searchFiles() {
+    var searchInput = document.getElementById('search-input').value.toLowerCase();
+    var files = document.querySelectorAll('#file-list li');
+    for (var i = 0; i < files.length; i++) {
+    var fileName = files[i].querySelector('a').innerText.toLowerCase();
+    if (fileName.includes(searchInput)) {
+    files[i].style.display = 'block';
+    }else {
+    files[i].style.display = 'none';
+    }
+    }
+    }
+    function downloadSelectedFiles() {
+    var checkedBoxes = document.querySelectorAll('#file-list input[type="checkbox"]:checked');
+    if (checkedBoxes.length === 0) {
+    alert('Please select at least one file to download.');
+    return;
+    }
+    var downloadUrls = [];
+    for (var i = 0; i < checkedBoxes.length; i++) {
+    var checkbox = checkedBoxes[i];
+    var liElement = checkbox.parentNode;
+    if (window.getComputedStyle(liElement).getPropertyValue('display')!=='none'){
+    var downloadUrl = liElement.querySelector('a').href;
+    downloadUrls.push(downloadUrl);
+    }
+    }
+    for (var i = 0; i < downloadUrls.length; i++) {
+    var downloadUrl = downloadUrls[i];
+    var iframe = document.createElement('iframe');
+    iframe.style.display = 'none';
+    iframe.src = downloadUrl;
+    document.body.appendChild(iframe);
+    }
+    }
+    document.getElementById('select-all').addEventListener('change', selectall);
+    document.getElementById('download-selected-button').addEventListener('click', downloadSelectedFiles);
+    </script>
+    </body>
+    """
+
+    return {
+        'statusCode': 200,
+        'body': html_content,
+        'headers': {
+            'Content-Type': 'text/html'
+        }
+    }
+   
